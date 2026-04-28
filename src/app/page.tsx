@@ -1,100 +1,139 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import {
+  Shield,
+  Users,
+  GraduationCap,
+  CreditCard,
+  Bell,
+  Smartphone,
+  ChevronRight,
+} from 'lucide-react';
+
+const features = [
+  {
+    icon: Users,
+    title: 'Member Management',
+    description: 'Track and manage all members with detailed profiles, categories, and statuses.',
+  },
+  {
+    icon: GraduationCap,
+    title: 'EVP/CPD Tracking',
+    description: 'Monitor continuing professional development hours and compliance.',
+  },
+  {
+    icon: CreditCard,
+    title: 'Payment Tracking',
+    description: 'Annual fee management with automatic status updates.',
+  },
+  {
+    icon: Bell,
+    title: 'Notifications',
+    description: 'In-app and push notifications targeted by member category or status.',
+  },
+  {
+    icon: Shield,
+    title: 'Multi-Tenant',
+    description: 'Each organization has its own data, admins, and branding.',
+  },
+  {
+    icon: Smartphone,
+    title: 'Mobile-First PWA',
+    description: 'Install as an app on any device. Works offline.',
+  },
+];
+
+export default function LandingPage() {
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <header className="sticky top-0 z-50 bg-background/95 backdrop-blur border-b">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Shield className="h-6 w-6 text-primary" />
+            <span className="font-bold text-lg">MemberHub</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Link href="/auth/login">
+              <Button variant="ghost" size="sm">
+                Sign In
+              </Button>
+            </Link>
+            <Link href="/auth/register">
+              <Button size="sm">Get Started</Button>
+            </Link>
+          </div>
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
+      </header>
+
+      {/* Hero */}
+      <section className="px-4 py-16 md:py-24 text-center max-w-4xl mx-auto">
+        <h1 className="text-3xl md:text-5xl font-bold tracking-tight mb-4">
+          Membership Management
+          <br />
+          <span className="text-primary">Made Simple</span>
+        </h1>
+        <p className="text-lg text-muted-foreground max-w-2xl mx-auto mb-8">
+          A modern platform for professional organizations to manage members,
+          track EVP/CPD compliance, handle payments, and send targeted notifications.
+        </p>
+        <div className="flex flex-col sm:flex-row gap-3 justify-center">
+          <Link href="/auth/register">
+            <Button size="lg" className="w-full sm:w-auto h-12 text-base px-8">
+              Start Free
+              <ChevronRight className="ml-1 h-4 w-4" />
+            </Button>
+          </Link>
+          <Link href="/auth/login">
+            <Button variant="outline" size="lg" className="w-full sm:w-auto h-12 text-base px-8">
+              Sign In
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section className="px-4 py-12 max-w-6xl mx-auto">
+        <h2 className="text-2xl font-bold text-center mb-8">Everything You Need</h2>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {features.map((feature) => {
+            const Icon = feature.icon;
+            return (
+              <div
+                key={feature.title}
+                className="p-6 rounded-xl border bg-card hover:shadow-md transition-shadow"
+              >
+                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
+                  <Icon className="h-5 w-5 text-primary" />
+                </div>
+                <h3 className="font-semibold mb-1">{feature.title}</h3>
+                <p className="text-sm text-muted-foreground">{feature.description}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="px-4 py-16 text-center">
+        <div className="max-w-md mx-auto">
+          <h2 className="text-2xl font-bold mb-2">Ready to get started?</h2>
+          <p className="text-muted-foreground mb-6">
+            Set up your organization in minutes.
+          </p>
+          <Link href="/auth/register">
+            <Button size="lg" className="w-full h-12 text-base">
+              Create Your Organization
+            </Button>
+          </Link>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="border-t px-4 py-6 text-center text-sm text-muted-foreground">
+        <p>&copy; {new Date().getFullYear()} MemberHub. All rights reserved.</p>
       </footer>
     </div>
   );
