@@ -55,6 +55,7 @@ export default function EVPPage() {
   const supabase = createClient();
   const [records, setRecords] = useState<EVPRecord[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
+  const [currentMemberId, setCurrentMemberId] = useState<string>('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
@@ -87,9 +88,19 @@ export default function EVPPage() {
         .select('*')
         .eq('organization_id', profile.organization_id);
       setMembers(memberData || []);
+    } else {
+      // For non-admin users, find their own member record
+      const { data: myMember } = await supabase
+        .from('members')
+        .select('id')
+        .eq('user_profile_id', profile.id)
+        .single();
+      if (myMember) {
+        setCurrentMemberId(myMember.id);
+      }
     }
     setLoading(false);
-  }, [profile?.organization_id, isAdmin, supabase]);
+  }, [profile?.organization_id, profile?.id, isAdmin, supabase]);
 
   useEffect(() => {
     fetchRecords();
@@ -113,9 +124,12 @@ export default function EVPPage() {
     if (!profile?.organization_id) return;
     setSaving(true);
 
+    const memberId = isAdmin ? newRecord.member_id : currentMemberId;
+    if (!memberId) return;
+
     const { error } = await supabase.from('evp_records').insert({
       organization_id: profile.organization_id,
-      member_id: newRecord.member_id,
+      member_id: memberId,
       title: newRecord.title,
       description: newRecord.description || null,
       date: newRecord.date,
