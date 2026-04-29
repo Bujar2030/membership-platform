@@ -125,7 +125,10 @@ export default function EVPPage() {
     setSaving(true);
 
     const memberId = isAdmin ? newRecord.member_id : currentMemberId;
-    if (!memberId) return;
+    if (!memberId) {
+      setSaving(false);
+      return;
+    }
 
     const { error } = await supabase.from('evp_records').insert({
       organization_id: profile.organization_id,
