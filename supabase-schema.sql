@@ -301,10 +301,11 @@ BEGIN
     'member'
   );
 
-  -- Also create a member record
-  INSERT INTO members (organization_id, member_number, first_name, last_name, email, status)
+  -- Create a member record linked to the user profile
+  INSERT INTO members (organization_id, user_profile_id, member_number, first_name, last_name, email, status)
   VALUES (
     default_org_id,
+    (SELECT id FROM user_profiles WHERE auth_id = NEW.id),
     'MBR-' || UPPER(SUBSTR(MD5(NEW.id::text), 1, 8)),
     COALESCE(NEW.raw_user_meta_data->>'first_name', 'User'),
     COALESCE(NEW.raw_user_meta_data->>'last_name', ''),

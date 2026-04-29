@@ -31,36 +31,42 @@ export default function MemberDashboard() {
     if (!profile) return;
 
     const fetchData = async () => {
-      const [memberRes, evpRes, paymentsRes, notifRes] = await Promise.all([
-        supabase
-          .from('members')
-          .select('*')
-          .eq('user_profile_id', profile.id)
-          .single(),
-        supabase
-          .from('evp_records')
-          .select('*')
-          .eq('organization_id', profile.organization_id)
-          .order('date', { ascending: false })
-          .limit(5),
-        supabase
-          .from('payments')
-          .select('*')
-          .eq('organization_id', profile.organization_id)
-          .order('year', { ascending: false })
-          .limit(5),
-        supabase
-          .from('notifications')
-          .select('*')
-          .eq('organization_id', profile.organization_id)
-          .order('created_at', { ascending: false })
-          .limit(5),
-      ]);
+      // First fetch the member record to get the member ID
+      const memberRes = await supabase
+        .from('members')
+        .select('*')
+        .eq('user_profile_id', profile.id)
+        .single();
 
       setMember(memberRes.data);
-      setEvpRecords(evpRes.data || []);
-      setPayments(paymentsRes.data || []);
-      setNotifications(notifRes.data || []);
+
+      if (memberRes.data) {
+        // Fetch member-specific EVP records and payments
+        const [evpRes, paymentsRes, notifRes] = await Promise.all([
+          supabase
+            .from('evp_records')
+            .select('*')
+            .eq('member_id', memberRes.data.id)
+            .order('date', { ascending: false })
+            .limit(5),
+          supabase
+            .from('payments')
+            .select('*')
+            .eq('member_id', memberRes.data.id)
+            .order('year', { ascending: false })
+            .limit(5),
+          supabase
+            .from('notifications')
+            .select('*')
+            .eq('organization_id', profile.organization_id)
+            .order('created_at', { ascending: false })
+            .limit(5),
+        ]);
+
+        setEvpRecords(evpRes.data || []);
+        setPayments(paymentsRes.data || []);
+        setNotifications(notifRes.data || []);
+      }
       setLoading(false);
     };
 
