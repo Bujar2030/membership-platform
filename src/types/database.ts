@@ -18,6 +18,7 @@ export interface Organization {
   logo_url: string | null;
   primary_color: string;
   secondary_color: string;
+  theme: string | null;
   country: string;
   email: string;
   phone: string | null;

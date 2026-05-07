@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import { cn } from "@/lib/utils";
 import { PWAInstall } from "@/components/shared/pwa-install";
+import { Toaster } from "sonner";
 import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
@@ -43,6 +44,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased">
         {children}
+        <Toaster richColors position="top-right" />
         <PWAInstall />
         <script
           dangerouslySetInnerHTML={{

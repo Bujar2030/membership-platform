@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { useOrganization } from '@/hooks/use-organization';
 import { AppLayout } from '@/components/layout/app-layout';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -13,6 +14,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
   DialogContent,
@@ -37,6 +39,7 @@ import {
   Clock,
 } from 'lucide-react';
 import { EVP_SOURCES } from '@/lib/constants';
+import { toast } from 'sonner';
 import type { EVPRecord, EVPSource, EVPStatus, Member } from '@/types/database';
 
 const EVP_CATEGORIES = [
@@ -50,8 +53,20 @@ const EVP_CATEGORIES = [
   'Other',
 ];
 
+const defaultForm = {
+  member_id: '',
+  title: '',
+  description: '',
+  date: new Date().toISOString().split('T')[0],
+  provider: '',
+  source: 'external' as EVPSource,
+  category: 'Other',
+  hours: 1,
+};
+
 export default function EVPPage() {
   const { profile, isAdmin } = useAuth();
+  const { organization } = useOrganization();
   const supabase = createClient();
   const [records, setRecords] = useState<EVPRecord[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
@@ -60,34 +75,37 @@ export default function EVPPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(defaultForm);
 
-  const [newRecord, setNewRecord] = useState({
-    member_id: '',
-    title: '',
-    description: '',
-    date: new Date().toISOString().split('T')[0],
-    provider: '',
-    source: 'external' as EVPSource,
-    category: 'Other',
-    hours: 1,
-  });
+  const requiredHours = organization?.evp_required_hours ?? 40;
+  const periodMonths = organization?.evp_period_months ?? 12;
 
   const fetchRecords = useCallback(async () => {
     if (!profile?.organization_id) return;
-    const { data } = await supabase
-      .from('evp_records')
-      .select('*')
-      .eq('organization_id', profile.organization_id)
-      .order('date', { ascending: false });
-    setRecords(data || []);
 
-    if (isAdmin) {
-      const { data: memberData } = await supabase
-        .from('members')
+    const [recordsRes, membersRes] = await Promise.all([
+      supabase
+        .from('evp_records')
         .select('*')
-        .eq('organization_id', profile.organization_id);
-      setMembers(memberData || []);
+        .eq('organization_id', profile.organization_id)
+        .order('date', { ascending: false }),
+      isAdmin
+        ? supabase
+            .from('members')
+            .select('id, first_name, last_name')
+            .eq('organization_id', profile.organization_id)
+            .order('first_name')
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (recordsRes.error) {
+      toast.error('Failed to load EVP records');
+      setLoading(false);
+      return;
     }
+
+    setRecords(recordsRes.data ?? []);
+    setMembers((membersRes.data as Member[]) ?? []);
     setLoading(false);
   }, [profile?.organization_id, isAdmin, supabase]);
 
@@ -99,55 +117,79 @@ export default function EVPPage() {
     const matchesSearch =
       !search ||
       r.title.toLowerCase().includes(search.toLowerCase()) ||
-      r.provider.toLowerCase().includes(search.toLowerCase());
+      r.provider.toLowerCase().includes(search.toLowerCase()) ||
+      r.category.toLowerCase().includes(search.toLowerCase());
     const matchesStatus = statusFilter === 'all' || r.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const totalHours = records.filter((r) => r.status === 'approved').reduce((s, r) => s + r.hours, 0);
+  const approvedHours = records
+    .filter((r) => r.status === 'approved')
+    .reduce((s, r) => s + r.hours, 0);
   const submittedCount = records.filter((r) => r.status === 'submitted').length;
   const approvedCount = records.filter((r) => r.status === 'approved').length;
+  const compliancePercent = Math.min(100, Math.round((approvedHours / requiredHours) * 100));
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.organization_id) return;
-    setSaving(true);
 
+    if (isAdmin && !form.member_id) {
+      toast.error('Please select a member');
+      return;
+    }
+    if (!form.title.trim() || !form.provider.trim()) {
+      toast.error('Title and provider are required');
+      return;
+    }
+
+    setSaving(true);
     const { error } = await supabase.from('evp_records').insert({
       organization_id: profile.organization_id,
-      member_id: newRecord.member_id,
-      title: newRecord.title,
-      description: newRecord.description || null,
-      date: newRecord.date,
-      provider: newRecord.provider,
-      source: newRecord.source,
-      category: newRecord.category,
-      hours: newRecord.hours,
+      member_id: form.member_id || profile.id,
+      title: form.title.trim(),
+      description: form.description.trim() || null,
+      date: form.date,
+      provider: form.provider.trim(),
+      source: form.source,
+      category: form.category,
+      hours: form.hours,
       status: 'submitted',
     });
 
-    if (!error) {
-      setDialogOpen(false);
-      setNewRecord({
-        member_id: '',
-        title: '',
-        description: '',
-        date: new Date().toISOString().split('T')[0],
-        provider: '',
-        source: 'external',
-        category: 'Other',
-        hours: 1,
-      });
-      fetchRecords();
-    }
     setSaving(false);
+
+    if (error) {
+      toast.error('Failed to submit EVP record. Please try again.');
+      return;
+    }
+
+    toast.success(`EVP record "${form.title}" submitted for review`);
+    setDialogOpen(false);
+    setForm(defaultForm);
+    fetchRecords();
   };
 
-  const handleStatusChange = async (recordId: string, status: EVPStatus) => {
-    await supabase
+  const handleStatusChange = async (recordId: string, status: EVPStatus, title: string) => {
+    const { error } = await supabase
       .from('evp_records')
-      .update({ status, reviewed_by: profile?.id, reviewed_at: new Date().toISOString() })
+      .update({
+        status,
+        reviewed_by: profile?.id,
+        reviewed_at: new Date().toISOString(),
+      })
       .eq('id', recordId);
+
+    if (error) {
+      toast.error('Failed to update status');
+      return;
+    }
+
+    toast.success(
+      status === 'approved'
+        ? `"${title}" approved`
+        : `"${title}" rejected`
+    );
     fetchRecords();
   };
 
@@ -155,7 +197,7 @@ export default function EVPPage() {
     <AppLayout>
       <PageHeader
         title="EVP/CPD"
-        description="Continuing Professional Development tracking"
+        description={`Continuing Professional Development — ${requiredHours}h required per ${periodMonths} months`}
         action={
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -166,18 +208,18 @@ export default function EVPPage() {
             </DialogTrigger>
             <DialogContent className="max-w-md mx-4 max-h-[90vh] overflow-y-auto">
               <DialogHeader>
-                <DialogTitle>Add EVP/CPD Record</DialogTitle>
+                <DialogTitle>Submit EVP/CPD Record</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleAdd} className="space-y-4">
                 {isAdmin && (
                   <div className="space-y-2">
-                    <Label>Member</Label>
+                    <Label>Member *</Label>
                     <Select
-                      value={newRecord.member_id}
-                      onValueChange={(v) => setNewRecord({ ...newRecord, member_id: v })}
+                      value={form.member_id}
+                      onValueChange={(v) => setForm({ ...form, member_id: v })}
                     >
                       <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Select member" />
+                        <SelectValue placeholder="Select member..." />
                       </SelectTrigger>
                       <SelectContent>
                         {members.map((m) => (
@@ -190,42 +232,45 @@ export default function EVPPage() {
                   </div>
                 )}
                 <div className="space-y-2">
-                  <Label>Title</Label>
+                  <Label>Title *</Label>
                   <Input
-                    value={newRecord.title}
-                    onChange={(e) => setNewRecord({ ...newRecord, title: e.target.value })}
+                    value={form.title}
+                    onChange={(e) => setForm({ ...form, title: e.target.value })}
                     required
+                    placeholder="e.g. IFRS Update Workshop"
                     className="h-11"
                   />
                 </div>
                 <div className="space-y-2">
                   <Label>Description</Label>
                   <Textarea
-                    value={newRecord.description}
-                    onChange={(e) => setNewRecord({ ...newRecord, description: e.target.value })}
+                    value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
                     rows={2}
+                    placeholder="Optional details..."
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>Date</Label>
+                    <Label>Date *</Label>
                     <Input
                       type="date"
-                      value={newRecord.date}
-                      onChange={(e) => setNewRecord({ ...newRecord, date: e.target.value })}
+                      value={form.date}
+                      onChange={(e) => setForm({ ...form, date: e.target.value })}
                       required
                       className="h-11"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Hours</Label>
+                    <Label>Hours *</Label>
                     <Input
                       type="number"
                       min={0.5}
+                      max={200}
                       step={0.5}
-                      value={newRecord.hours}
+                      value={form.hours}
                       onChange={(e) =>
-                        setNewRecord({ ...newRecord, hours: parseFloat(e.target.value) })
+                        setForm({ ...form, hours: parseFloat(e.target.value) || 0.5 })
                       }
                       required
                       className="h-11"
@@ -233,11 +278,12 @@ export default function EVPPage() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Provider</Label>
+                  <Label>Provider / Organizer *</Label>
                   <Input
-                    value={newRecord.provider}
-                    onChange={(e) => setNewRecord({ ...newRecord, provider: e.target.value })}
+                    value={form.provider}
+                    onChange={(e) => setForm({ ...form, provider: e.target.value })}
                     required
+                    placeholder="e.g. KPMG, CPA Kosovo"
                     className="h-11"
                   />
                 </div>
@@ -245,10 +291,8 @@ export default function EVPPage() {
                   <div className="space-y-2">
                     <Label>Source</Label>
                     <Select
-                      value={newRecord.source}
-                      onValueChange={(v) =>
-                        setNewRecord({ ...newRecord, source: v as EVPSource })
-                      }
+                      value={form.source}
+                      onValueChange={(v) => setForm({ ...form, source: v as EVPSource })}
                     >
                       <SelectTrigger className="h-11">
                         <SelectValue />
@@ -265,8 +309,8 @@ export default function EVPPage() {
                   <div className="space-y-2">
                     <Label>Category</Label>
                     <Select
-                      value={newRecord.category}
-                      onValueChange={(v) => setNewRecord({ ...newRecord, category: v })}
+                      value={form.category}
+                      onValueChange={(v) => setForm({ ...form, category: v })}
                     >
                       <SelectTrigger className="h-11">
                         <SelectValue />
@@ -293,10 +337,30 @@ export default function EVPPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-4">
-        <StatCard title="Approved Hours" value={totalHours} icon={CheckCircle} />
-        <StatCard title="Pending" value={submittedCount} icon={Clock} />
-        <StatCard title="Approved" value={approvedCount} icon={GraduationCap} />
+        <StatCard title="Approved Hours" value={approvedHours} icon={CheckCircle} />
+        <StatCard title="Pending Review" value={submittedCount} icon={Clock} />
+        <StatCard title="Total Approved" value={approvedCount} icon={GraduationCap} />
       </div>
+
+      {/* Compliance Bar */}
+      {!isAdmin && (
+        <Card className="mb-4">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-sm font-medium">EVP Compliance Progress</p>
+              <span className="text-sm font-semibold">
+                {approvedHours} / {requiredHours}h ({compliancePercent}%)
+              </span>
+            </div>
+            <Progress value={compliancePercent} className="h-2.5" />
+            <p className="text-xs text-muted-foreground mt-2">
+              {compliancePercent >= 100
+                ? '✓ Compliant — target achieved'
+                : `${requiredHours - approvedHours}h more needed to be compliant`}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Search & Filter */}
       <div className="flex gap-2 mb-4">
@@ -315,14 +379,13 @@ export default function EVPPage() {
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
-            <SelectItem value="submitted">Submitted</SelectItem>
+            <SelectItem value="submitted">Pending</SelectItem>
             <SelectItem value="approved">Approved</SelectItem>
             <SelectItem value="rejected">Rejected</SelectItem>
           </SelectContent>
         </Select>
       </div>
 
-      {/* Records List */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -331,7 +394,7 @@ export default function EVPPage() {
         <EmptyState
           icon={GraduationCap}
           title="No EVP records"
-          description="Add your first EVP/CPD record"
+          description={search ? 'Try a different search term' : 'Submit your first EVP/CPD record'}
         />
       ) : (
         <div className="space-y-2">
@@ -340,35 +403,44 @@ export default function EVPPage() {
               <CardContent className="p-4">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1">
-                      <p className="font-medium text-sm truncate">{record.title}</p>
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <p className="font-medium text-sm">{record.title}</p>
                       <StatusBadge status={record.status} />
                     </div>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                      <span className="font-semibold">{record.hours}h</span>
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+                      <span className="font-semibold text-foreground">{record.hours}h</span>
                       <span>·</span>
                       <span>{record.provider}</span>
                       <span>·</span>
-                      <span>{record.source}</span>
+                      <span>{record.category}</span>
+                      <span>·</span>
+                      <span className="capitalize">{record.source}</span>
                       <span>·</span>
                       <span>{new Date(record.date).toLocaleDateString()}</span>
                     </div>
+                    {record.description && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-1">
+                        {record.description}
+                      </p>
+                    )}
                   </div>
                   {isAdmin && record.status === 'submitted' && (
                     <div className="flex gap-1 flex-shrink-0">
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-green-600"
-                        onClick={() => handleStatusChange(record.id, 'approved')}
+                        className="h-8 w-8 text-green-600 hover:text-green-700 hover:bg-green-50"
+                        title="Approve"
+                        onClick={() => handleStatusChange(record.id, 'approved', record.title)}
                       >
                         <CheckCircle className="h-4 w-4" />
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-red-600"
-                        onClick={() => handleStatusChange(record.id, 'rejected')}
+                        className="h-8 w-8 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        title="Reject"
+                        onClick={() => handleStatusChange(record.id, 'rejected', record.title)}
                       >
                         <XCircle className="h-4 w-4" />
                       </Button>
