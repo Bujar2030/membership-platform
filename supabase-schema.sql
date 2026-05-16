@@ -16,6 +16,7 @@ CREATE TABLE organizations (
   logo_url TEXT,
   primary_color TEXT NOT NULL DEFAULT '#0f172a',
   secondary_color TEXT NOT NULL DEFAULT '#3b82f6',
+  theme TEXT NOT NULL DEFAULT 'corporate-light',
   country TEXT NOT NULL DEFAULT 'Kosovo',
   email TEXT NOT NULL,
   phone TEXT,
@@ -340,7 +341,7 @@ CREATE TRIGGER update_payments_updated_at BEFORE UPDATE ON payments FOR EACH ROW
 -- ============================================
 -- SEED DATA (IKAF Demo Organization)
 -- ============================================
-INSERT INTO organizations (name, short_name, email, country, phone, website, primary_color, secondary_color, evp_required_hours, membership_fee)
+INSERT INTO organizations (name, short_name, email, country, phone, website, primary_color, secondary_color, theme, evp_required_hours, membership_fee)
 VALUES (
   'Institute of Certified Accountants of Kosovo',
   'IKAF',
@@ -350,6 +351,12 @@ VALUES (
   'https://ikaf-ks.org',
   '#0f172a',
   '#3b82f6',
+  'corporate-light',
   40,
   150.00
 ) ON CONFLICT DO NOTHING;
+
+-- ============================================
+-- MIGRATIONS (run these for existing databases)
+-- ============================================
+-- ALTER TABLE organizations ADD COLUMN IF NOT EXISTS theme TEXT NOT NULL DEFAULT 'corporate-light';

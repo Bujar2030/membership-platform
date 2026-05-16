@@ -12,9 +12,11 @@ import {
   LogOut,
   Shield,
   ClipboardList,
+  Building2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
+import { useOrganization } from '@/hooks/use-organization';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 
@@ -38,23 +40,53 @@ const memberNavItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const { profile, isAdmin, signOut } = useAuth();
+  const { organization } = useOrganization();
 
-  const navItems = isAdmin ? adminNavItems : memberNavItems;
+  const isSuperAdmin = profile?.role === 'platform_super_admin';
+  const navItems = [
+    ...(isSuperAdmin ? [{ href: '/admin', label: 'All Organizations', icon: Building2 }] : []),
+    ...(isAdmin ? adminNavItems : memberNavItems),
+  ];
   const initials = profile
     ? `${profile.first_name?.[0] ?? ''}${profile.last_name?.[0] ?? ''}`
     : '?';
 
+  const orgInitials = organization?.short_name?.slice(0, 2).toUpperCase() ?? 'MH';
+
   return (
     <aside className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 bg-background border-r">
       <div className="flex flex-col flex-1 min-h-0">
-        {/* Logo */}
-        <div className="flex items-center gap-3 px-6 py-5 border-b">
-          <Shield className="h-7 w-7 text-primary" />
-          <span className="font-bold text-xl">MemberHub</span>
+        {/* Logo / Org Branding */}
+        <div className="flex items-center gap-3 px-4 py-4 border-b">
+          {organization?.logo_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={organization.logo_url}
+              alt={organization.name}
+              className="h-9 w-9 rounded-lg object-contain flex-shrink-0"
+            />
+          ) : (
+            <div
+              className="h-9 w-9 rounded-lg flex items-center justify-center text-white font-bold text-sm flex-shrink-0"
+              style={{ backgroundColor: organization?.primary_color ?? '#0f172a' }}
+            >
+              {organization ? orgInitials : <Shield className="h-5 w-5" />}
+            </div>
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="font-bold text-sm leading-tight truncate">
+              {organization?.name ?? 'MemberHub'}
+            </p>
+            {organization && (
+              <p className="text-xs text-muted-foreground truncate capitalize">
+                {organization.subscription_plan} plan
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Navigation */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+        <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
@@ -69,7 +101,7 @@ export function Sidebar() {
                     : 'text-muted-foreground hover:bg-muted hover:text-foreground'
                 )}
               >
-                <Icon className="h-4 w-4" />
+                <Icon className="h-4 w-4 flex-shrink-0" />
                 {item.label}
               </Link>
             );
@@ -78,15 +110,20 @@ export function Sidebar() {
 
         {/* User Profile */}
         <div className="p-3 border-t">
-          <div className="flex items-center gap-3 px-3 py-2">
-            <Avatar className="h-8 w-8">
-              <AvatarFallback className="text-xs">{initials}</AvatarFallback>
+          <div className="flex items-center gap-3 px-3 py-2 rounded-lg">
+            <Avatar className="h-8 w-8 flex-shrink-0">
+              <AvatarFallback
+                className="text-xs text-white"
+                style={{ backgroundColor: organization?.primary_color ?? '#0f172a' }}
+              >
+                {initials}
+              </AvatarFallback>
             </Avatar>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-medium truncate">
                 {profile?.first_name} {profile?.last_name}
               </p>
-              <p className="text-xs text-muted-foreground truncate">
+              <p className="text-xs text-muted-foreground truncate capitalize">
                 {profile?.role?.replace(/_/g, ' ')}
               </p>
             </div>

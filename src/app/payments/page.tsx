@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useAuth } from '@/hooks/use-auth';
+import { useOrganization } from '@/hooks/use-organization';
 import { AppLayout } from '@/components/layout/app-layout';
 import { PageHeader } from '@/components/shared/page-header';
 import { StatusBadge } from '@/components/shared/status-badge';
@@ -36,103 +37,146 @@ import {
   CheckCircle,
 } from 'lucide-react';
 import { PAYMENT_METHODS } from '@/lib/constants';
+import { toast } from 'sonner';
 import type { Payment, PaymentMethod, PaymentStatus, Member } from '@/types/database';
+
+type PaymentWithMember = Payment & {
+  member_name?: string;
+};
+
+const defaultForm = {
+  member_id: '',
+  year: new Date().getFullYear(),
+  amount: 100,
+  method: 'bank_transfer' as PaymentMethod,
+  status: 'unpaid' as PaymentStatus,
+};
 
 export default function PaymentsPage() {
   const { profile, isAdmin } = useAuth();
+  const { organization } = useOrganization();
   const supabase = createClient();
-  const [payments, setPayments] = useState<Payment[]>([]);
+  const [payments, setPayments] = useState<PaymentWithMember[]>([]);
   const [members, setMembers] = useState<Member[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState(defaultForm);
 
-  const [newPayment, setNewPayment] = useState({
-    member_id: '',
-    year: new Date().getFullYear(),
-    amount: 0,
-    method: 'bank_transfer' as PaymentMethod,
-    status: 'unpaid' as PaymentStatus,
-  });
-
-  const fetchPayments = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     if (!profile?.organization_id) return;
-    const { data } = await supabase
-      .from('payments')
-      .select('*')
-      .eq('organization_id', profile.organization_id)
-      .order('year', { ascending: false });
-    setPayments(data || []);
 
-    if (isAdmin) {
-      const { data: memberData } = await supabase
-        .from('members')
+    const [paymentsRes, membersRes] = await Promise.all([
+      supabase
+        .from('payments')
         .select('*')
-        .eq('organization_id', profile.organization_id);
-      setMembers(memberData || []);
+        .eq('organization_id', profile.organization_id)
+        .order('year', { ascending: false })
+        .order('created_at', { ascending: false }),
+      supabase
+        .from('members')
+        .select('id, first_name, last_name')
+        .eq('organization_id', profile.organization_id)
+        .order('first_name'),
+    ]);
+
+    if (paymentsRes.error) {
+      toast.error('Failed to load payments');
+      setLoading(false);
+      return;
     }
+
+    const memberMap = new Map<string, string>();
+    (membersRes.data ?? []).forEach((m) => {
+      memberMap.set(m.id, `${m.first_name} ${m.last_name}`);
+    });
+
+    const enriched: PaymentWithMember[] = (paymentsRes.data ?? []).map((p) => ({
+      ...p,
+      member_name: memberMap.get(p.member_id) ?? 'Unknown Member',
+    }));
+
+    setPayments(enriched);
+    setMembers((membersRes.data as Member[]) ?? []);
+
+    if (organization?.membership_fee) {
+      setForm((f) => ({ ...f, amount: organization.membership_fee }));
+    }
+
     setLoading(false);
-  }, [profile?.organization_id, isAdmin, supabase]);
+  }, [profile?.organization_id, supabase, organization?.membership_fee]);
 
   useEffect(() => {
-    fetchPayments();
-  }, [fetchPayments]);
+    fetchData();
+  }, [fetchData]);
 
   const filtered = payments.filter((p) => {
-    const matchesSearch = !search || p.year.toString().includes(search);
+    const q = search.toLowerCase();
+    const matchesSearch =
+      !search ||
+      p.year.toString().includes(q) ||
+      (p.member_name?.toLowerCase().includes(q) ?? false);
     const matchesStatus = statusFilter === 'all' || p.status === statusFilter;
     return matchesSearch && matchesStatus;
   });
 
-  const totalPaid = payments
-    .filter((p) => p.status === 'paid')
-    .reduce((sum, p) => sum + p.amount, 0);
+  const currency = organization?.currency ?? 'EUR';
+  const totalPaid = payments.filter((p) => p.status === 'paid').reduce((sum, p) => sum + p.amount, 0);
   const unpaidCount = payments.filter((p) => p.status === 'unpaid').length;
   const overdueCount = payments.filter((p) => p.status === 'overdue').length;
 
   const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.organization_id) return;
-    setSaving(true);
 
-    const dueDate = new Date(newPayment.year, 11, 31).toISOString();
+    if (!form.member_id) {
+      toast.error('Please select a member');
+      return;
+    }
+
+    setSaving(true);
+    const dueDate = new Date(form.year, 11, 31).toISOString();
 
     const { error } = await supabase.from('payments').insert({
       organization_id: profile.organization_id,
-      member_id: newPayment.member_id,
-      year: newPayment.year,
-      amount: newPayment.amount,
-      currency: 'EUR',
+      member_id: form.member_id,
+      year: form.year,
+      amount: form.amount,
+      currency,
       due_date: dueDate,
-      method: newPayment.status === 'paid' ? newPayment.method : null,
-      status: newPayment.status,
-      payment_date: newPayment.status === 'paid' ? new Date().toISOString() : null,
+      method: form.status === 'paid' ? form.method : null,
+      status: form.status,
+      payment_date: form.status === 'paid' ? new Date().toISOString() : null,
     });
 
-    if (!error) {
-      if (newPayment.status === 'paid') {
-        await supabase
-          .from('members')
-          .update({ status: 'active' })
-          .eq('id', newPayment.member_id);
-      }
-      setDialogOpen(false);
-      setNewPayment({
-        member_id: '',
-        year: new Date().getFullYear(),
-        amount: 0,
-        method: 'bank_transfer',
-        status: 'unpaid',
-      });
-      fetchPayments();
+    if (error) {
+      toast.error('Failed to record payment. Please try again.');
+      setSaving(false);
+      return;
     }
+
+    if (form.status === 'paid') {
+      await supabase
+        .from('members')
+        .update({ status: 'active' })
+        .eq('id', form.member_id);
+    }
+
+    const memberName = members.find((m) => m.id === form.member_id);
+    toast.success(
+      `Payment recorded for ${memberName?.first_name ?? 'member'} — ${form.year}`
+    );
+
+    setDialogOpen(false);
+    setForm({ ...defaultForm, amount: organization?.membership_fee ?? 100 });
+    fetchData();
     setSaving(false);
   };
 
-  const handleMarkPaid = async (paymentId: string, memberId: string) => {
-    await supabase
+  const handleMarkPaid = async (paymentId: string, memberId: string, memberName?: string) => {
+    const { error } = await supabase
       .from('payments')
       .update({
         status: 'paid',
@@ -141,12 +185,14 @@ export default function PaymentsPage() {
       })
       .eq('id', paymentId);
 
-    await supabase
-      .from('members')
-      .update({ status: 'active' })
-      .eq('id', memberId);
+    if (error) {
+      toast.error('Failed to update payment status');
+      return;
+    }
 
-    fetchPayments();
+    await supabase.from('members').update({ status: 'active' }).eq('id', memberId);
+    toast.success(`Payment marked as paid${memberName ? ` for ${memberName}` : ''}`);
+    fetchData();
   };
 
   return (
@@ -169,13 +215,13 @@ export default function PaymentsPage() {
                 </DialogHeader>
                 <form onSubmit={handleAdd} className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Member</Label>
+                    <Label>Member *</Label>
                     <Select
-                      value={newPayment.member_id}
-                      onValueChange={(v) => setNewPayment({ ...newPayment, member_id: v })}
+                      value={form.member_id}
+                      onValueChange={(v) => setForm({ ...form, member_id: v })}
                     >
                       <SelectTrigger className="h-11">
-                        <SelectValue placeholder="Select member" />
+                        <SelectValue placeholder="Select member..." />
                       </SelectTrigger>
                       <SelectContent>
                         {members.map((m) => (
@@ -188,26 +234,28 @@ export default function PaymentsPage() {
                   </div>
                   <div className="grid grid-cols-2 gap-3">
                     <div className="space-y-2">
-                      <Label>Year</Label>
+                      <Label>Year *</Label>
                       <Input
                         type="number"
-                        value={newPayment.year}
+                        min={2020}
+                        max={2099}
+                        value={form.year}
                         onChange={(e) =>
-                          setNewPayment({ ...newPayment, year: parseInt(e.target.value) })
+                          setForm({ ...form, year: parseInt(e.target.value) || new Date().getFullYear() })
                         }
                         required
                         className="h-11"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Amount (EUR)</Label>
+                      <Label>Amount ({currency}) *</Label>
                       <Input
                         type="number"
                         min={0}
                         step={0.01}
-                        value={newPayment.amount}
+                        value={form.amount}
                         onChange={(e) =>
-                          setNewPayment({ ...newPayment, amount: parseFloat(e.target.value) })
+                          setForm({ ...form, amount: parseFloat(e.target.value) || 0 })
                         }
                         required
                         className="h-11"
@@ -218,10 +266,8 @@ export default function PaymentsPage() {
                     <div className="space-y-2">
                       <Label>Status</Label>
                       <Select
-                        value={newPayment.status}
-                        onValueChange={(v) =>
-                          setNewPayment({ ...newPayment, status: v as PaymentStatus })
-                        }
+                        value={form.status}
+                        onValueChange={(v) => setForm({ ...form, status: v as PaymentStatus })}
                       >
                         <SelectTrigger className="h-11">
                           <SelectValue />
@@ -236,10 +282,9 @@ export default function PaymentsPage() {
                     <div className="space-y-2">
                       <Label>Method</Label>
                       <Select
-                        value={newPayment.method}
-                        onValueChange={(v) =>
-                          setNewPayment({ ...newPayment, method: v as PaymentMethod })
-                        }
+                        value={form.method}
+                        onValueChange={(v) => setForm({ ...form, method: v as PaymentMethod })}
+                        disabled={form.status !== 'paid'}
                       >
                         <SelectTrigger className="h-11">
                           <SelectValue />
@@ -267,7 +312,11 @@ export default function PaymentsPage() {
 
       {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-4">
-        <StatCard title="Total Paid" value={`€${totalPaid}`} icon={DollarSign} />
+        <StatCard
+          title="Total Paid"
+          value={`${currency} ${totalPaid.toLocaleString()}`}
+          icon={DollarSign}
+        />
         <StatCard title="Unpaid" value={unpaidCount} icon={AlertTriangle} />
         <StatCard title="Overdue" value={overdueCount} icon={CreditCard} />
       </div>
@@ -277,7 +326,7 @@ export default function PaymentsPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by year..."
+            placeholder="Search by member or year..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-11"
@@ -296,7 +345,6 @@ export default function PaymentsPage() {
         </Select>
       </div>
 
-      {/* Payments List */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -304,8 +352,8 @@ export default function PaymentsPage() {
       ) : filtered.length === 0 ? (
         <EmptyState
           icon={CreditCard}
-          title="No payments"
-          description="Record your first payment"
+          title="No payments found"
+          description={search ? 'Try a different search term' : 'Record your first payment'}
         />
       ) : (
         <div className="space-y-2">
@@ -314,25 +362,27 @@ export default function PaymentsPage() {
               <CardContent className="p-4 flex items-center justify-between">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <p className="font-medium text-sm">
-                      €{payment.amount}
-                    </p>
+                    <p className="font-medium text-sm truncate">{payment.member_name}</p>
                     <StatusBadge status={payment.status} />
                   </div>
-                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>Year: {payment.year}</span>
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">
+                    <span className="font-semibold text-foreground">
+                      {currency} {payment.amount.toLocaleString()}
+                    </span>
+                    <span>·</span>
+                    <span>Year {payment.year}</span>
                     {payment.payment_date && (
                       <>
                         <span>·</span>
                         <span>
-                          Paid: {new Date(payment.payment_date).toLocaleDateString()}
+                          Paid {new Date(payment.payment_date).toLocaleDateString()}
                         </span>
                       </>
                     )}
                     {payment.method && (
                       <>
                         <span>·</span>
-                        <span className="capitalize">{payment.method.replace('_', ' ')}</span>
+                        <span className="capitalize">{payment.method.replace(/_/g, ' ')}</span>
                       </>
                     )}
                   </div>
@@ -341,11 +391,13 @@ export default function PaymentsPage() {
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="text-green-600 flex-shrink-0"
-                    onClick={() => handleMarkPaid(payment.id, payment.member_id)}
+                    className="text-green-600 hover:text-green-700 hover:bg-green-50 flex-shrink-0"
+                    onClick={() =>
+                      handleMarkPaid(payment.id, payment.member_id, payment.member_name)
+                    }
                   >
                     <CheckCircle className="h-4 w-4 mr-1" />
-                    Paid
+                    Mark Paid
                   </Button>
                 )}
               </CardContent>

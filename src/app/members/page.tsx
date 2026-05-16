@@ -28,7 +28,17 @@ import {
 } from '@/components/ui/select';
 import { Users, Plus, Search, ChevronRight, Loader2 } from 'lucide-react';
 import { MEMBER_CATEGORIES, MEMBER_STATUSES } from '@/lib/constants';
+import { toast } from 'sonner';
 import type { Member, MemberCategory, MemberStatus } from '@/types/database';
+
+const defaultForm = {
+  first_name: '',
+  last_name: '',
+  email: '',
+  phone: '',
+  category: 'associate' as MemberCategory,
+  status: 'pending' as MemberStatus,
+};
 
 export default function MembersPage() {
   const { profile } = useAuth();
@@ -40,24 +50,22 @@ export default function MembersPage() {
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-
-  const [newMember, setNewMember] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    category: 'associate' as MemberCategory,
-    status: 'pending' as MemberStatus,
-  });
+  const [form, setForm] = useState(defaultForm);
 
   const fetchMembers = useCallback(async () => {
     if (!profile?.organization_id) return;
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('members')
       .select('*')
       .eq('organization_id', profile.organization_id)
       .order('created_at', { ascending: false });
-    setMembers(data || []);
+
+    if (error) {
+      toast.error('Failed to load members');
+      setLoading(false);
+      return;
+    }
+    setMembers(data ?? []);
     setLoading(false);
   }, [profile?.organization_id, supabase]);
 
@@ -86,6 +94,12 @@ export default function MembersPage() {
   const handleAddMember = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!profile?.organization_id) return;
+
+    if (!form.first_name.trim() || !form.last_name.trim() || !form.email.trim()) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
     setSaving(true);
 
     const memberNumber = `MBR-${Date.now().toString(36).toUpperCase()}`;
@@ -93,35 +107,37 @@ export default function MembersPage() {
     const { error } = await supabase.from('members').insert({
       organization_id: profile.organization_id,
       member_number: memberNumber,
-      first_name: newMember.first_name,
-      last_name: newMember.last_name,
-      email: newMember.email,
-      phone: newMember.phone || null,
-      category: newMember.category,
-      status: newMember.status,
+      first_name: form.first_name.trim(),
+      last_name: form.last_name.trim(),
+      email: form.email.trim().toLowerCase(),
+      phone: form.phone.trim() || null,
+      category: form.category,
+      status: form.status,
       registration_date: new Date().toISOString(),
     });
 
-    if (!error) {
-      setDialogOpen(false);
-      setNewMember({
-        first_name: '',
-        last_name: '',
-        email: '',
-        phone: '',
-        category: 'associate',
-        status: 'pending',
-      });
-      fetchMembers();
-    }
     setSaving(false);
+
+    if (error) {
+      if (error.code === '23505') {
+        toast.error('A member with this email already exists');
+      } else {
+        toast.error('Failed to add member. Please try again.');
+      }
+      return;
+    }
+
+    toast.success(`${form.first_name} ${form.last_name} added successfully`);
+    setDialogOpen(false);
+    setForm(defaultForm);
+    fetchMembers();
   };
 
   return (
     <AppLayout>
       <PageHeader
         title="Members"
-        description={`${members.length} total members`}
+        description={`${members.length} total member${members.length !== 1 ? 's' : ''}`}
         action={
           <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
             <DialogTrigger asChild>
@@ -137,36 +153,30 @@ export default function MembersPage() {
               <form onSubmit={handleAddMember} className="space-y-4">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
-                    <Label>First Name</Label>
+                    <Label>First Name *</Label>
                     <Input
-                      value={newMember.first_name}
-                      onChange={(e) =>
-                        setNewMember({ ...newMember, first_name: e.target.value })
-                      }
+                      value={form.first_name}
+                      onChange={(e) => setForm({ ...form, first_name: e.target.value })}
                       required
                       className="h-11"
                     />
                   </div>
                   <div className="space-y-2">
-                    <Label>Last Name</Label>
+                    <Label>Last Name *</Label>
                     <Input
-                      value={newMember.last_name}
-                      onChange={(e) =>
-                        setNewMember({ ...newMember, last_name: e.target.value })
-                      }
+                      value={form.last_name}
+                      onChange={(e) => setForm({ ...form, last_name: e.target.value })}
                       required
                       className="h-11"
                     />
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label>Email</Label>
+                  <Label>Email *</Label>
                   <Input
                     type="email"
-                    value={newMember.email}
-                    onChange={(e) =>
-                      setNewMember({ ...newMember, email: e.target.value })
-                    }
+                    value={form.email}
+                    onChange={(e) => setForm({ ...form, email: e.target.value })}
                     required
                     className="h-11"
                   />
@@ -174,21 +184,18 @@ export default function MembersPage() {
                 <div className="space-y-2">
                   <Label>Phone</Label>
                   <Input
-                    value={newMember.phone}
-                    onChange={(e) =>
-                      setNewMember({ ...newMember, phone: e.target.value })
-                    }
+                    value={form.phone}
+                    onChange={(e) => setForm({ ...form, phone: e.target.value })}
                     className="h-11"
+                    placeholder="+383 44 123 456"
                   />
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-2">
                     <Label>Category</Label>
                     <Select
-                      value={newMember.category}
-                      onValueChange={(v) =>
-                        setNewMember({ ...newMember, category: v as MemberCategory })
-                      }
+                      value={form.category}
+                      onValueChange={(v) => setForm({ ...form, category: v as MemberCategory })}
                     >
                       <SelectTrigger className="h-11">
                         <SelectValue />
@@ -205,10 +212,8 @@ export default function MembersPage() {
                   <div className="space-y-2">
                     <Label>Status</Label>
                     <Select
-                      value={newMember.status}
-                      onValueChange={(v) =>
-                        setNewMember({ ...newMember, status: v as MemberStatus })
-                      }
+                      value={form.status}
+                      onValueChange={(v) => setForm({ ...form, status: v as MemberStatus })}
                     >
                       <SelectTrigger className="h-11">
                         <SelectValue />
@@ -238,7 +243,7 @@ export default function MembersPage() {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search members..."
+            placeholder="Search by name, email or ID..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="pl-9 h-11"
@@ -259,7 +264,6 @@ export default function MembersPage() {
         </Select>
       </div>
 
-      {/* Members List - Card view for mobile */}
       {loading ? (
         <div className="flex justify-center py-12">
           <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -268,7 +272,11 @@ export default function MembersPage() {
         <EmptyState
           icon={Users}
           title="No members found"
-          description={search ? 'Try a different search term' : 'Add your first member to get started'}
+          description={
+            search
+              ? 'Try a different search term'
+              : 'Add your first member to get started'
+          }
         />
       ) : (
         <div className="space-y-2">
@@ -284,8 +292,9 @@ export default function MembersPage() {
                       <StatusBadge status={member.status} />
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span>{member.member_number}</span>
+                      <span className="font-mono">{member.member_number}</span>
                       <span className="truncate">{member.email}</span>
+                      <span className="capitalize hidden sm:inline">{member.category}</span>
                     </div>
                   </div>
                   <ChevronRight className="h-4 w-4 text-muted-foreground flex-shrink-0 ml-2" />
